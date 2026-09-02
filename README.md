@@ -35,6 +35,21 @@ the cycle, not a guess.
 Per-gait strips are also written (`out/horse-<gait>.png`), and ×4/×6
 nearest-neighbour previews (`out/preview-*.png`) for eyeballing.
 
+## The centaur
+
+`out/centaur-sheet.png` (768×320, 64×64 frames, ground row 62) + `out/centaur-sheet.json`
+
+Same rig from the withers back — trunk, spine, legs, tail and every gait table
+are shared byte-for-byte, so a centaur and a horse in the same scene keep step.
+The horse neck and head are replaced by a human half whose hip joint sits on
+the withers: pelvis on the withers-to-chest slope, torso widening to the
+shoulders, neck, head with a cap of hair, and two IK arms (elbow behind the
+shoulder-hand line). Per gait the torso leans forward with speed (5° walk,
+10° trot, 18° canter, 26° gallop, minus a little when the back rounds) and the
+arms swing at the walk, pump at the trot, and are held forward and bent at the
+canter and gallop; idle is akimbo. Far arm is drawn behind the body group, near
+arm in front with its own outline. The frame is 16 px taller for the head.
+
 ## How the frames are made
 
 `gen.mjs` poses a rig in *withers units* (H = height at the withers, x forward,

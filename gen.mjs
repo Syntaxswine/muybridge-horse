@@ -25,11 +25,12 @@ const OUT = join(ROOT, 'out');
 mkdirSync(OUT, { recursive: true });
 
 // ---------------------------------------------------------------- geometry
-export const FW = 64, FH = 48;   // frame size (px)
-export const GROUND = 46;        // pixel row of the ground line (hoof bottoms sit on it)
+export let FW = 64, FH = 48;     // frame size (px) — the centaur sheet is 64×64
+export let GROUND = 46;          // pixel row of the ground line (hoof bottoms sit on it)
 export const H = 32;             // withers height (px)
 export const CX = 32;            // column of the body centre (x = 0 in units)
 export const N = 12;             // frames per cycle (Muybridge's 12-camera battery)
+export function setFrame({ w = 64, h = 48, ground = 46 } = {}) { FW = w; FH = h; GROUND = ground; }
 
 const toPx = (p) => [CX + p[0] * H, GROUND - p[1] * H];   // units -> px (float, y down)
 const wU = (px) => px / H;                                  // a width in px -> units
@@ -50,9 +51,14 @@ const PALETTE = [
   [0xe8, 0xd8, 0xc0, 255],    // 9 EYE
   [0x24, 0x18, 0x12, 255],    // 10 MANE (same ink as POINT; separate id so the ring rule can tell body from leg)
   [0x24, 0x18, 0x12, 255],    // 11 TAIL
+  [0xd9, 0xa4, 0x78, 255],    // 12 SKIN        (centaur)
+  [0xe9, 0xbf, 0x96, 255],    // 13 SKIN_LIGHT
+  [0xb8, 0x82, 0x5c, 255],    // 14 SKIN_SHADE
+  [0x9c, 0x6e, 0x4e, 255],    // 15 FARSKIN     far arm
 ];
 const OUTL = 1, COAT = 2, LIGHT = 3, SHADE = 4, POINT = 5, FAR = 6, FARPT = 7, HOOF = 8, EYE = 9, MANE = 10, TAIL = 11;
-const BODY_INK = new Set([COAT, LIGHT, SHADE, MANE, EYE]);
+const SKIN = 12, SKIN_LIGHT = 13, SKIN_SHADE = 14, FARSKIN = 15;
+const BODY_INK = new Set([COAT, LIGHT, SHADE, MANE, EYE, SKIN, SKIN_LIGHT, SKIN_SHADE]);
 const UPPER_LEG_INK = new Set([COAT, FAR]);
 
 // ---------------------------------------------------------------- raster
@@ -148,9 +154,10 @@ function shade(m) {
   const src = new Uint8Array(m.a);
   const at = (x, y) => (x < 0 || y < 0 || x >= FW || y >= FH) ? 0 : src[y * FW + x];
   for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
-    if (src[y * FW + x] !== COAT) continue;
-    if (!at(x, y - 1) || !at(x, y - 2)) m.a[y * FW + x] = LIGHT;
-    else if (!at(x, y + 1) || !at(x, y + 2)) m.a[y * FW + x] = SHADE;
+    const c = src[y * FW + x];
+    if (c !== COAT && c !== SKIN) continue;
+    if (!at(x, y - 1) || !at(x, y - 2)) m.a[y * FW + x] = c === COAT ? LIGHT : SKIN_LIGHT;
+    else if (!at(x, y + 1) || !at(x, y + 2)) m.a[y * FW + x] = c === COAT ? SHADE : SKIN_SHADE;
   }
 }
 
@@ -305,9 +312,41 @@ export const GAITS = {
 // Idle: split the far/near pairs so both fore and both hind legs show.
 const LEG_KIND = { LH: 'hind', RH: 'hind', LF: 'fore', RF: 'fore' };
 const NEAR = { RH: true, RF: true, LH: false, LF: false };
+for (const [k, g] of Object.entries(GAITS)) g.name = k;
+
+// ---------------------------------------------------------------- centaur
+// The human half stands where the horse neck would root: hip joint J on the
+// withers, torso leaning forward with speed, arms swinging at the walk,
+// pumping at the trot, held forward and bent at the canter and gallop.
+// Torso coordinates are local (upright); lean rotates them about J.
+// Arms hang from mid-depth of the torso; in side view a hanging arm lies over
+// the torso, so the swing is exaggerated to carry the hands past its edges.
+const HUMAN_ARM = { L1: 0.16, L2: 0.15, shoulderNear: [0.31, 1.30], shoulderFar: [0.27, 1.31] };
+const HUMAN = {
+  walk: {
+    lean: (p) => deg(5) + deg(2) * Math.sin(2 * TWO_PI * p),
+    hands: (p) => { const s = Math.sin(TWO_PI * (p - 0.25)); return [[0.31 + 0.16 * s, 1.01 + 0.03 * Math.abs(s)], [0.27 - 0.16 * s, 1.01 + 0.03 * Math.abs(s)]]; },
+  },
+  trot: {
+    lean: (p) => deg(10) + deg(3) * Math.sin(2 * TWO_PI * (p - 0.22)),
+    hands: (p) => { const s = Math.sin(TWO_PI * p); return [[0.42 + 0.08 * s, 1.14], [0.38 - 0.08 * s, 1.14]]; },   // running arms, pumping
+  },
+  canter: {
+    lean: (p, flex) => deg(18) - deg(4) * flex,
+    hands: () => [[0.50, 1.20], [0.44, 1.22]],
+  },
+  gallop: {
+    lean: (p, flex) => deg(26) - deg(6) * flex,
+    hands: () => [[0.50, 1.22], [0.44, 1.24]],
+  },
+  idle: {
+    lean: (p) => deg(2) + deg(1.5) * Math.sin(TWO_PI * p),
+    hands: () => [[0.36, 1.06], [0.30, 1.06]],   // akimbo, elbows back
+  },
+};
 
 // ---------------------------------------------------------------- pose + draw
-export function renderFrame(gait, phase) {
+export function renderFrame(gait, phase, model = 'horse') {
   const bob = gait.bob(phase), pitch = gait.pitch(phase);
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
   const X = (p) => [
@@ -352,32 +391,66 @@ export function renderFrame(gait, phase) {
   for (let i = 0; i + 1 < tp.length; i++) segU(tail, tp[i], tp[i + 1], wU(3 - i * 0.6), wU(2.6 - i * 0.6), TAIL);
   composite(frame, tail);
 
-  // body group: trunk (spine-bent topline/underline), rump, chest, neck, head, ears, mane
+  // body group: trunk (spine-bent topline/underline), rump, chest, then the
+  // front end — a horse neck and head, or the centaur's human torso
   const body = new Mask();
   fillPolyU(body, [...crSample(TOPLINE, 4), ...crSample(UNDERLINE, 4).reverse()].map(S).map(X), COAT);
   fillEllipseU(body, X(S([-0.37, 0.79])), 0.17, 0.17, pitch, COAT);   // hindquarters
   fillEllipseU(body, X(S([0.35, 0.72])), 0.16, 0.16, pitch, COAT);    // chest
 
-  const a = gait.neck(phase), b = gait.head(phase);
-  const A = S([0.24, 0.99]), B = [0.44, 0.68];                          // neck root rides the withers
-  const P = [A[0] + 0.36 * Math.cos(a), A[1] + 0.36 * Math.sin(a)];             // poll
-  const T = [P[0] + 0.21 * Math.sin(a), P[1] - 0.21 * Math.cos(a)];             // throat
-  fillPolyU(body, [A, P, T, B].map(X), COAT);
-  const hd = [Math.cos(b), Math.sin(b)], pd = [Math.sin(b), -Math.cos(b)];
-  const nose = [P[0] + 0.42 * hd[0], P[1] + 0.42 * hd[1]];
-  fillPolyU(body, [
-    [P[0] - 0.03, P[1] + 0.02], nose,
-    [nose[0] + 0.11 * pd[0], nose[1] + 0.11 * pd[1]],
-    [P[0] + 0.08 * hd[0] + 0.21 * pd[0], P[1] + 0.08 * hd[1] + 0.21 * pd[1]],
-  ].map(X), COAT);
-  fillPolyU(body, [[P[0] - 0.04, P[1] - 0.02], [P[0] - 0.02, P[1] + 0.11], [P[0] + 0.05, P[1] + 0.00]].map(X), COAT); // ear
-  shade(body);
-  // mane (black points) sits on top of the shaded neck
-  segU(body, X([0.18, 1.00]), X([P[0] - 0.03, P[1] + 0.02]), wU(2.5), wU(2), MANE, false);
-  segU(body, X([P[0] - 0.01, P[1] + 0.03]), X([P[0] + 0.09 * hd[0], P[1] + 0.09 * hd[1] + 0.02]), wU(2), wU(1), MANE, false); // forelock
+  let eye, nearArm = null;
+  if (model === 'centaur') {
+    const hm = HUMAN[gait.name];
+    const J = [0.30, 0.96];                                             // human hip joint, on the withers
+    const dJ = S(J).map((v, i) => v - J[i]);                            // torso translates with the withers, no local bend
+    const lean = hm.lean(phase, flex), cl = Math.cos(lean), sl = Math.sin(lean);
+    // local (upright) torso coords -> lean about J (forward = +x) -> withers displacement -> pitch/bob
+    const T = ([x, y]) => X([J[0] + (x - J[0]) * cl + (y - J[1]) * sl + dJ[0], J[1] - (x - J[0]) * sl + (y - J[1]) * cl + dJ[1]]);
+    const [handN, handF] = hm.hands(phase, flex);
+    const drawArm = (shoulder, hand, near) => {
+      const m = new Mask(), ink = near ? SKIN : FARSKIN;
+      const { joint, end } = ik(shoulder, hand, HUMAN_ARM.L1, HUMAN_ARM.L2, -1);   // elbow behind the shoulder-hand line
+      segU(m, T(shoulder), T(joint), wU(2.5), wU(2), ink);
+      segU(m, T(joint), T(end), wU(2), wU(2), ink);
+      fillEllipseU(m, T(end), wU(1.4), wU(1.4), 0, ink);                            // hand
+      return m;
+    };
+    composite(frame, drawArm(HUMAN_ARM.shoulderFar, handF, false));
+    // pelvis sits on the withers-to-chest slope (its base stays on the trunk; only the waist leans),
+    // then the torso widens to the shoulders
+    fillPolyU(body, [X(S([0.12, 0.95])), X(S([0.46, 0.86])), T([0.41, 1.12]), T([0.17, 1.12])], SKIN);
+    fillPolyU(body, [[0.17, 1.12], [0.41, 1.12], [0.46, 1.33], [0.10, 1.33]].map(T), SKIN);
+    fillEllipseU(body, T([0.13, 1.31]), 0.05, 0.05, 0, SKIN);          // shoulder caps
+    fillEllipseU(body, T([0.43, 1.31]), 0.05, 0.05, 0, SKIN);
+    segU(body, T([0.29, 1.33]), T([0.29, 1.41]), wU(3), wU(3), SKIN, false);        // neck
+    shade(body);
+    fillEllipseU(body, T([0.28, 1.50]), 0.08, 0.07, 0, MANE);           // hair
+    fillEllipseU(body, T([0.30, 1.47]), 0.065, 0.075, 0, SKIN);         // face
+    eye = T([0.34, 1.48]);
+    nearArm = drawArm(HUMAN_ARM.shoulderNear, handN, true);
+  } else {
+    const a = gait.neck(phase), b = gait.head(phase);
+    const A = S([0.24, 0.99]), B = [0.44, 0.68];                        // neck root rides the withers
+    const P = [A[0] + 0.36 * Math.cos(a), A[1] + 0.36 * Math.sin(a)];           // poll
+    const T = [P[0] + 0.21 * Math.sin(a), P[1] - 0.21 * Math.cos(a)];           // throat
+    fillPolyU(body, [A, P, T, B].map(X), COAT);
+    const hd = [Math.cos(b), Math.sin(b)], pd = [Math.sin(b), -Math.cos(b)];
+    const nose = [P[0] + 0.42 * hd[0], P[1] + 0.42 * hd[1]];
+    fillPolyU(body, [
+      [P[0] - 0.03, P[1] + 0.02], nose,
+      [nose[0] + 0.11 * pd[0], nose[1] + 0.11 * pd[1]],
+      [P[0] + 0.08 * hd[0] + 0.21 * pd[0], P[1] + 0.08 * hd[1] + 0.21 * pd[1]],
+    ].map(X), COAT);
+    fillPolyU(body, [[P[0] - 0.04, P[1] - 0.02], [P[0] - 0.02, P[1] + 0.11], [P[0] + 0.05, P[1] + 0.00]].map(X), COAT); // ear
+    shade(body);
+    // mane (black points) sits on top of the shaded neck
+    segU(body, X([0.18, 1.00]), X([P[0] - 0.03, P[1] + 0.02]), wU(2.5), wU(2), MANE, false);
+    segU(body, X([P[0] - 0.01, P[1] + 0.03]), X([P[0] + 0.09 * hd[0], P[1] + 0.09 * hd[1] + 0.02]), wU(2), wU(1), MANE, false); // forelock
+    eye = X([P[0] + 0.15 * hd[0] + 0.06 * pd[0], P[1] + 0.15 * hd[1] + 0.06 * pd[1]]);
+  }
   composite(frame, body);
-  // eye: a single light pixel
-  { const [ex, ey] = toPx(X([P[0] + 0.15 * hd[0] + 0.06 * pd[0], P[1] + 0.15 * hd[1] + 0.06 * pd[1]])); frame.set(Math.round(ex - 0.5), Math.round(ey - 0.5), EYE); }
+  { const [ex, ey] = toPx(eye); frame.set(Math.round(ex - 0.5), Math.round(ey - 0.5), EYE); }   // eye: one light pixel
+  if (nearArm) composite(frame, nearArm);
 
   composite(frame, drawLeg(legs.RH), LEG_RING);
   composite(frame, drawLeg(legs.RF), LEG_RING);
@@ -431,14 +504,15 @@ function preview(strips, k = 4) {
 }
 
 // ---------------------------------------------------------------- main
-export function build() {
+export function build(model = 'horse') {
+  setFrame(model === 'centaur' ? { h: 64, ground: 62 } : { h: 48, ground: 46 });
   const names = Object.keys(GAITS);
   const strips = [], meta = {};
   const problems = [];
   names.forEach((name, row) => {
     const g = GAITS[name], n = g.frames ?? N, frames = [];
     for (let i = 0; i < n; i++) {
-      const { frame, legs } = renderFrame(g, i / n);
+      const { frame, legs } = renderFrame(g, i / n, model);
       frames.push(frame);
       // checks: nothing clipped at the canvas edge; stance hooves on the ground line
       let minx = FW, maxx = -1, miny = FH, maxy = -1;
@@ -460,20 +534,21 @@ export function build() {
 
   const sheet = new Image(FW * N, FH * names.length);
   strips.forEach((frames, r) => frames.forEach((m, c) => sheet.blitMask(m, c * FW, r * FH)));
-  writeFileSync(join(OUT, 'horse-sheet.png'), sheet.png());
+  const pv = model === 'horse' ? 'preview-' : `preview-${model}-`;     // the horse keeps its original file names
+  writeFileSync(join(OUT, `${model}-sheet.png`), sheet.png());
   names.forEach((name, r) => {
     const s = new Image(FW * strips[r].length, FH);
     strips[r].forEach((m, c) => s.blitMask(m, c * FW, 0));
-    writeFileSync(join(OUT, `horse-${name}.png`), s.png());
+    writeFileSync(join(OUT, `${model}-${name}.png`), s.png());
   });
-  writeFileSync(join(OUT, 'horse-sheet.json'), JSON.stringify({
-    image: 'horse-sheet.png', frameWidth: FW, frameHeight: FH, groundY: GROUND, withersPx: H, anchorX: CX,
+  writeFileSync(join(OUT, `${model}-sheet.json`), JSON.stringify({
+    model, image: `${model}-sheet.png`, frameWidth: FW, frameHeight: FH, groundY: GROUND, withersPx: H, anchorX: CX,
     palette: PALETTE.slice(1).map(c => '#' + c.slice(0, 3).map(v => v.toString(16).padStart(2, '0')).join('')),
     gaits: meta,
     source: 'Gait timing after Hildebrand; postures read from Muybridge: Eagle walking (Animal Locomotion, 1887) and Sallie Gardner (The Horse in Motion, 1878).',
   }, null, 2));
-  writeFileSync(join(OUT, 'preview-all.png'), preview(strips, 4).png());
-  names.forEach((name, r) => { const f = strips[r]; writeFileSync(join(OUT, `preview-${name}.png`), preview(f.length > 6 ? [f.slice(0, 6), f.slice(6)] : [f], 6).png()); });
+  writeFileSync(join(OUT, `${pv}all.png`), preview(strips, 4).png());
+  names.forEach((name, r) => { const f = strips[r]; writeFileSync(join(OUT, `${pv}${name}.png`), preview(f.length > 6 ? [f.slice(0, 6), f.slice(6)] : [f], 6).png()); });
 
   // fingerprint (FNV-1a over the sheet bytes) so a byte-level change is visible in a diff
   let hsh = 0x811c9dc5; for (const b of sheet.d) { hsh ^= b; hsh = Math.imul(hsh, 0x01000193) >>> 0; }
@@ -481,8 +556,10 @@ export function build() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const r = build();
-  console.log(`sheet ${FW * N}×${FH * r.names.length}  frames ${FW}×${FH}  ground row ${GROUND}  withers ${H}px  fingerprint ${r.fingerprint}`);
-  for (const [k, v] of Object.entries(r.meta)) console.log(`  ${k.padEnd(7)} ${String(v.frames).padStart(2)} fr @ ${String(v.fps).padStart(2)} fps  duty ${v.duty}  ground ${v.groundPxPerFrame} px/frame  — ${v.note}`);
-  if (r.problems.length) { console.log('PROBLEMS:'); r.problems.forEach(p => console.log('  ' + p)); process.exitCode = 1; }
+  for (const model of ['horse', 'centaur']) {
+    const r = build(model);
+    console.log(`${model}: sheet ${FW * N}×${FH * r.names.length}  frames ${FW}×${FH}  ground row ${GROUND}  withers ${H}px  fingerprint ${r.fingerprint}`);
+    if (model === 'horse') for (const [k, v] of Object.entries(r.meta)) console.log(`  ${k.padEnd(7)} ${String(v.frames).padStart(2)} fr @ ${String(v.fps).padStart(2)} fps  duty ${v.duty}  ground ${v.groundPxPerFrame} px/frame  — ${v.note}`);
+    if (r.problems.length) { console.log('PROBLEMS:'); r.problems.forEach(p => console.log('  ' + p)); process.exitCode = 1; }
+  }
 }
