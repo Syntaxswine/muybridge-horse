@@ -1,0 +1,94 @@
+{
+  "image": "horse-sheet.png",
+  "frameWidth": 64,
+  "frameHeight": 48,
+  "groundY": 46,
+  "withersPx": 32,
+  "anchorX": 32,
+  "palette": [
+    "#2a1b12",
+    "#8c5b2e",
+    "#a97440",
+    "#6a4121",
+    "#241812",
+    "#55361e",
+    "#1c120e",
+    "#1a110c",
+    "#e8d8c0",
+    "#241812",
+    "#241812"
+  ],
+  "gaits": {
+    "walk": {
+      "row": 0,
+      "frames": 12,
+      "fps": 12,
+      "duty": 0.65,
+      "footfalls": {
+        "LH": 0,
+        "LF": 0.25,
+        "RH": 0.5,
+        "RF": 0.75
+      },
+      "groundPxPerFrame": 1.805,
+      "note": "Eagle, Animal Locomotion 1887 — lateral sequence LH LF RH RF, duty ≈0.65, low action, tail hanging"
+    },
+    "trot": {
+      "row": 1,
+      "frames": 12,
+      "fps": 16,
+      "duty": 0.45,
+      "footfalls": {
+        "LF": 0,
+        "RH": 0,
+        "RF": 0.5,
+        "LH": 0.5
+      },
+      "groundPxPerFrame": 2.844,
+      "note": "diagonal couplets LF+RH / RF+LH, duty ≈0.45, tail carried"
+    },
+    "canter": {
+      "row": 2,
+      "frames": 12,
+      "fps": 18,
+      "duty": 0.36,
+      "footfalls": {
+        "LH": 0,
+        "RH": 0.28,
+        "LF": 0.28,
+        "RF": 0.52
+      },
+      "groundPxPerFrame": 4.296,
+      "note": "right-lead canter, LH · RH+LF · RF · suspension"
+    },
+    "gallop": {
+      "row": 3,
+      "frames": 12,
+      "fps": 24,
+      "duty": 0.28,
+      "footfalls": {
+        "LH": 0,
+        "RH": 0.1,
+        "LF": 0.3,
+        "RF": 0.42
+      },
+      "groundPxPerFrame": 6.095,
+      "note": "Sallie Gardner 1878 — LH RH LF RF, forelegs folded to the chest, gathered suspension"
+    },
+    "idle": {
+      "row": 4,
+      "frames": 4,
+      "fps": 4,
+      "duty": 1,
+      "footfalls": {
+        "LH": 0,
+        "LF": 0,
+        "RH": 0,
+        "RF": 0
+      },
+      "groundPxPerFrame": 0,
+      "note": "standing (the card's twelfth frame)"
+    }
+  },
+  "source": "Gait timing after Hildebrand; postures read from Muybridge: Eagle walking (Animal Locomotion, 1887) and Sallie Gardner (The Horse in Motion, 1878)."
+}
