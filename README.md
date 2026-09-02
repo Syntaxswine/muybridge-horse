@@ -46,8 +46,14 @@ y up, ground at 0):
   speed; during swing it travels forward on a lifted arc. Fore legs fold early
   and hard (the folded-to-the-chest forelegs of Sallie Gardner frames 1, 8, 9);
   hinds arc. The shoulder pivot swings a little with the hoof (scapular rotation).
-- **Body** is three ellipses plus a back/withers polygon, pitched about the
-  barrel and bobbed per gait: the gallop is lowest over the forehand and highest
+- **Trunk** is a bendable spine, not a tube. Topline and underline stations
+  (the back dips behind the withers and rises to the croup; the belly is
+  deepest at the girth and rises into the flank) are sampled through a
+  Catmull-Rom curve and displaced by the gait's spinal flex: a parabola on the
+  mid-back where +1 rounds the back and tucks the croup under (Sallie Gardner
+  frame 7) and −1 hollows it (frame 4). Rump, chest, neck root, leg pivots and
+  the tail dock all ride the same spine. The whole trunk is then pitched and
+  bobbed per gait: the gallop is lowest over the forehand and highest
   mid-suspension, nose up on the hind push and down over the forehand.
 - **Neck and head** angles per gait: 40° neck / steep face at the walk (Eagle's
   carriage, nodding twice a stride), 22° extended neck with the nose out at the

@@ -155,10 +155,47 @@ function shade(m) {
 }
 
 // ---------------------------------------------------------------- rig
-const FORE = { pivot: [0.30, 0.58], L1: 0.26, L2: 0.28, bend: +1, shift: 0.25 };  // elbow -> knee -> hoof
+const FORE = { pivot: [0.30, 0.58], L1: 0.26, L2: 0.28, bend: +1, shift: 0.25, drop: 0.18 };  // elbow -> knee -> hoof; the elbow lowers as the leg reaches (scapular rotation)
 const HIND = { pivot: [-0.24, 0.56], L1: 0.26, L2: 0.32, bend: -1, shift: 0.10 }; // stifle -> hock -> hoof
 const HOOF_H = 0.06;                                                              // hoof block height (units)
 const BODY_C = [0, 0.75];                                                         // pitch centre
+
+// The trunk is a bendable spine, not a tube. Topline and underline stations
+// (front to back, withers units): the back dips behind the withers to the
+// mid-back, rises to the croup; the underline is deepest at the girth and
+// rises into the flank.
+const TOPLINE = [[0.42, 0.84], [0.36, 0.95], [0.27, 1.00], [0.18, 0.975], [0.05, 0.93], [-0.10, 0.915], [-0.25, 0.945], [-0.38, 0.965], [-0.48, 0.92], [-0.52, 0.86]];
+const UNDERLINE = [[0.42, 0.66], [0.32, 0.585], [0.18, 0.56], [0.05, 0.55], [-0.10, 0.565], [-0.25, 0.60], [-0.38, 0.65], [-0.48, 0.72], [-0.52, 0.80]];
+// Spinal flex: +1 rounds the back (gathered), -1 hollows it (extended). The
+// displacement is a parabola centred on the mid-back; behind the loin the
+// croup also tucks under (lumbosacral rotation), blended in over 0.1 H.
+const SPINE = { xm: -0.05, L: 0.47, amp: 0.055, tuckX: -0.20, tuckY: 0.76, tuckW: 0.10, tuck: 7 * Math.PI / 180 };
+function spineXform(flex) {
+  return ([x, y]) => {
+    const u = (x - SPINE.xm) / SPINE.L, bump = Math.max(0, 1 - u * u);
+    let px = x, py = y + flex * SPINE.amp * bump;
+    const w = Math.min(1, Math.max(0, (SPINE.tuckX - x) / SPINE.tuckW));
+    if (w > 0) {
+      const th = flex * SPINE.tuck * w, c = Math.cos(th), s = Math.sin(th);
+      const dx = px - SPINE.tuckX, dy = py - SPINE.tuckY;
+      px = SPINE.tuckX + dx * c - dy * s; py = SPINE.tuckY + dx * s + dy * c;
+    }
+    return [px, py];
+  };
+}
+// Catmull-Rom through the stations, k samples per span (open curve, clamped ends).
+function crSample(pts, k) {
+  const out = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+    for (let j = 0; j < k; j++) {
+      const t = j / k, t2 = t * t, t3 = t2 * t;
+      out.push([0, 1].map(c => 0.5 * (2 * p1[c] + (-p0[c] + p2[c]) * t + (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 + (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)));
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
 
 // Two-bone IK in unit space. bend +1 = joint on the +x side of pivot->target
 // (a fore knee), -1 = joint behind it (a hind hock).
@@ -201,6 +238,7 @@ export const GAITS = {
     lift: { fore: 0.09, hind: 0.10 },
     bob: (p) => 0.010 * Math.cos(2 * TWO_PI * p),
     pitch: () => 0,
+    spine: (p) => 0.15 * Math.sin(2 * TWO_PI * p + 1.0),                 // the back barely works at a walk
     neck: (p) => deg(40) + deg(3) * Math.sin(2 * TWO_PI * p + 0.6),   // nods twice a stride
     head: (p) => deg(-62) - deg(4) * Math.sin(2 * TWO_PI * p + 0.6),
     tail: (p) => [[-0.52, 0.88], [-0.55 + 0.02 * Math.sin(TWO_PI * p), 0.72], [-0.57 + 0.04 * Math.sin(TWO_PI * p), 0.55], [-0.58 + 0.05 * Math.sin(TWO_PI * p), 0.42]],
@@ -214,6 +252,7 @@ export const GAITS = {
     lift: { fore: 0.18, hind: 0.16 },
     bob: (p) => 0.022 * (0.5 - 0.5 * Math.cos(2 * TWO_PI * (p - 0.22))),
     pitch: () => 0,
+    spine: (p) => 0.15 * Math.sin(2 * TWO_PI * (p - 0.22)),             // stiff-backed gait
     neck: () => deg(46),
     head: () => deg(-60),
     tail: (p) => [[-0.52, 0.88], [-0.62, 0.84], [-0.69, 0.70 + 0.02 * Math.sin(2 * TWO_PI * p)], [-0.72, 0.56]],
@@ -225,8 +264,9 @@ export const GAITS = {
     td: { LH: 0.00, RH: 0.28, LF: 0.28, RF: 0.52 },
     reach: { fore: [-0.28, 0.30], hind: [-0.34, 0.26] },
     lift: { fore: 0.30, hind: 0.24 },
-    bob: (p) => 0.04 * (0.5 - 0.5 * Math.cos(TWO_PI * (p - 0.40))),
+    bob: (p) => 0.04 * (0.5 - 0.5 * Math.cos(TWO_PI * (p - 0.44))),        // highest mid-suspension (RF leaves at 0.88)
     pitch: (p) => deg(4) * Math.sin(TWO_PI * (p + 0.02)),
+    spine: (p) => -0.6 * Math.sin(TWO_PI * (p - 0.12)),                  // hollow over the forehand, rounded in suspension
     neck: (p) => deg(32) + deg(5) * Math.sin(TWO_PI * (p + 0.15)),
     head: () => deg(-42),
     tail: (p) => [[-0.52, 0.88], [-0.66, 0.86], [-0.78, 0.80 + 0.03 * Math.sin(TWO_PI * p)], [-0.88, 0.70]],
@@ -240,6 +280,7 @@ export const GAITS = {
     lift: { fore: 0.42, hind: 0.30 },
     bob: (p) => 0.05 * (0.5 - 0.5 * Math.cos(TWO_PI * (p - 0.35))),        // lowest on the forehand, highest mid-suspension
     pitch: (p) => deg(6) * Math.sin(TWO_PI * (p + 0.05)),                    // nose up on the hind push, down over the forehand
+    spine: (p) => -Math.sin(TWO_PI * (p - 0.10)),                        // hollow at the fore reach (frame 4), rounded when gathered (frame 7)
     neck: (p) => deg(22) + deg(5) * Math.sin(TWO_PI * (p + 0.10)),
     head: () => deg(-30),
     tail: (p) => [[-0.52, 0.88], [-0.68, 0.86], [-0.76, 0.82 + 0.03 * Math.sin(TWO_PI * p)], [-0.86, 0.75 - 0.03 * Math.sin(TWO_PI * p)]],
@@ -252,6 +293,7 @@ export const GAITS = {
     lift: { fore: 0, hind: 0 },
     bob: () => 0,
     pitch: () => 0,
+    spine: () => 0,
     neck: (p) => deg(44) + deg(2) * Math.sin(TWO_PI * p),
     head: (p) => deg(-66) + deg(3) * Math.sin(TWO_PI * p),
     tail: (p) => [[-0.52, 0.88], [-0.55, 0.72], [-0.57 + 0.06 * Math.sin(TWO_PI * p), 0.55], [-0.58 + 0.10 * Math.sin(TWO_PI * p), 0.42]],
@@ -272,6 +314,7 @@ export function renderFrame(gait, phase) {
     BODY_C[0] + (p[0] - BODY_C[0]) * cp - (p[1] - BODY_C[1]) * sp,
     BODY_C[1] + bob + (p[0] - BODY_C[0]) * sp + (p[1] - BODY_C[1]) * cp,
   ];
+  const flex = gait.spine(phase), S = spineXform(flex);   // body-local spine bend, applied before pitch/bob
 
   // legs
   const legs = {};
@@ -279,7 +322,7 @@ export function renderFrame(gait, phase) {
     const kind = LEG_KIND[leg], rig = kind === 'fore' ? FORE : HIND;
     const t = hoofTarget(kind, gait.td[leg], gait, phase);
     const farOff = NEAR[leg] ? 0 : -0.03;
-    const pivot = X([rig.pivot[0] + rig.shift * t.x + farOff, rig.pivot[1]]);
+    const pivot = X(S([rig.pivot[0] + rig.shift * t.x + farOff, rig.pivot[1] - (rig.drop || 0) * Math.abs(t.x)]));
     const target = [rig.pivot[0] + t.x + farOff, t.y + HOOF_H];
     const { joint, end } = ik(pivot, target, rig.L1, rig.L2, rig.bend);
     legs[leg] = { kind, pivot, joint, end, stance: t.stance, near: NEAR[leg] };
@@ -305,19 +348,18 @@ export function renderFrame(gait, phase) {
 
   // tail
   const tail = new Mask();
-  const tp = gait.tail(phase).map(X);
+  const tp = gait.tail(phase).map(S).map(X);   // the dock rides the croup
   for (let i = 0; i + 1 < tp.length; i++) segU(tail, tp[i], tp[i + 1], wU(3 - i * 0.6), wU(2.6 - i * 0.6), TAIL);
   composite(frame, tail);
 
-  // body group: rump, barrel, chest, back/withers, neck, head, ears, mane
+  // body group: trunk (spine-bent topline/underline), rump, chest, neck, head, ears, mane
   const body = new Mask();
-  fillEllipseU(body, X([-0.36, 0.77]), 0.20, 0.20, pitch, COAT);
-  fillEllipseU(body, X([-0.02, 0.75]), 0.44, 0.21, pitch, COAT);
-  fillEllipseU(body, X([0.34, 0.72]), 0.19, 0.19, pitch, COAT);
-  fillPolyU(body, [[-0.42, 0.94], [-0.15, 0.95], [0.14, 0.97], [0.24, 1.00], [0.32, 0.95], [0.36, 0.75], [-0.42, 0.75]].map(X), COAT);
+  fillPolyU(body, [...crSample(TOPLINE, 4), ...crSample(UNDERLINE, 4).reverse()].map(S).map(X), COAT);
+  fillEllipseU(body, X(S([-0.37, 0.79])), 0.17, 0.17, pitch, COAT);   // hindquarters
+  fillEllipseU(body, X(S([0.35, 0.72])), 0.16, 0.16, pitch, COAT);    // chest
 
   const a = gait.neck(phase), b = gait.head(phase);
-  const A = [0.24, 0.99], B = [0.44, 0.68];
+  const A = S([0.24, 0.99]), B = [0.44, 0.68];                          // neck root rides the withers
   const P = [A[0] + 0.36 * Math.cos(a), A[1] + 0.36 * Math.sin(a)];             // poll
   const T = [P[0] + 0.21 * Math.sin(a), P[1] - 0.21 * Math.cos(a)];             // throat
   fillPolyU(body, [A, P, T, B].map(X), COAT);
