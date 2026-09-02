@@ -319,29 +319,37 @@ for (const [k, g] of Object.entries(GAITS)) g.name = k;
 // withers, torso leaning forward with speed, arms swinging at the walk,
 // pumping at the trot, held forward and bent at the canter and gallop.
 // Torso coordinates are local (upright); lean rotates them about J.
-// Arms hang from mid-depth of the torso; in side view a hanging arm lies over
-// the torso, so the swing is exaggerated to carry the hands past its edges.
-const HUMAN_ARM = { L1: 0.16, L2: 0.15, shoulderNear: [0.31, 1.30], shoulderFar: [0.27, 1.31] };
+// Human geometry is local to the hip joint J (x forward, y up, withers units).
+// The torso in profile is an S-curve: belly, navel in, chest out, collarbone,
+// throat; then down the back: shoulders, blades out, small of the back in,
+// buttock out. Front line bottom-to-top, back line top-to-bottom.
+const HUMAN_FRONT = [[0.07, 0.02], [0.09, 0.10], [0.08, 0.20], [0.11, 0.30], [0.10, 0.38], [0.05, 0.43]];
+const HUMAN_BACK = [[-0.06, 0.43], [-0.10, 0.34], [-0.08, 0.24], [-0.05, 0.16], [-0.08, 0.06], [-0.09, 0.02]];
+// Face in profile, drawn over the skull ellipse: forehead, brow, nose, lip, chin, jaw.
+const HUMAN_FACE = [[0.05, 0.645], [0.10, 0.605], [0.125, 0.578], [0.10, 0.558], [0.10, 0.535], [0.06, 0.512], [0.00, 0.52], [0.00, 0.60]];
+// Arms hang from the deltoid; in side view a hanging arm lies over the torso,
+// so the walk swing is exaggerated to carry the hands past its edges.
+const HUMAN_ARM = { L1: 0.17, L2: 0.16, shoulderNear: [0.00, 0.39], shoulderFar: [-0.03, 0.40] };
 const HUMAN = {
   walk: {
     lean: (p) => deg(5) + deg(2) * Math.sin(2 * TWO_PI * p),
-    hands: (p) => { const s = Math.sin(TWO_PI * (p - 0.25)); return [[0.31 + 0.16 * s, 1.01 + 0.03 * Math.abs(s)], [0.27 - 0.16 * s, 1.01 + 0.03 * Math.abs(s)]]; },
+    hands: (p) => { const s = Math.sin(TWO_PI * (p - 0.25)); return [[0.16 * s, 0.06 + 0.03 * Math.abs(s)], [-0.03 - 0.16 * s, 0.06 + 0.03 * Math.abs(s)]]; },
   },
   trot: {
     lean: (p) => deg(10) + deg(3) * Math.sin(2 * TWO_PI * (p - 0.22)),
-    hands: (p) => { const s = Math.sin(TWO_PI * p); return [[0.42 + 0.08 * s, 1.14], [0.38 - 0.08 * s, 1.14]]; },   // running arms, pumping
+    hands: (p) => { const s = Math.sin(TWO_PI * p); return [[0.12 + 0.08 * s, 0.20], [0.09 - 0.08 * s, 0.20]]; },   // running arms, pumping
   },
   canter: {
     lean: (p, flex) => deg(18) - deg(4) * flex,
-    hands: () => [[0.50, 1.20], [0.44, 1.22]],
+    hands: () => [[0.20, 0.26], [0.16, 0.28]],
   },
   gallop: {
     lean: (p, flex) => deg(26) - deg(6) * flex,
-    hands: () => [[0.50, 1.22], [0.44, 1.24]],
+    hands: () => [[0.20, 0.28], [0.16, 0.30]],
   },
   idle: {
     lean: (p) => deg(2) + deg(1.5) * Math.sin(TWO_PI * p),
-    hands: () => [[0.36, 1.06], [0.30, 1.06]],   // akimbo, elbows back
+    hands: () => [[0.05, 0.12], [0.02, 0.12]],   // akimbo, elbows back
   },
 };
 
@@ -404,8 +412,9 @@ export function renderFrame(gait, phase, model = 'horse') {
     const J = [0.30, 0.96];                                             // human hip joint, on the withers
     const dJ = S(J).map((v, i) => v - J[i]);                            // torso translates with the withers, no local bend
     const lean = hm.lean(phase, flex), cl = Math.cos(lean), sl = Math.sin(lean);
-    // local (upright) torso coords -> lean about J (forward = +x) -> withers displacement -> pitch/bob
-    const T = ([x, y]) => X([J[0] + (x - J[0]) * cl + (y - J[1]) * sl + dJ[0], J[1] - (x - J[0]) * sl + (y - J[1]) * cl + dJ[1]]);
+    // local hip-relative coords -> lean about J (forward = +x) -> withers displacement -> pitch/bob
+    const T = ([x, y]) => X([J[0] + x * cl + y * sl + dJ[0], J[1] - x * sl + y * cl + dJ[1]]);
+    const Bfix = ([x, y]) => X(S([J[0] + x, J[1] + y]));                 // fixed to the trunk (the pelvis does not lean)
     const [handN, handF] = hm.hands(phase, flex);
     const drawArm = (shoulder, hand, near) => {
       const m = new Mask(), ink = near ? SKIN : FARSKIN;
@@ -416,17 +425,16 @@ export function renderFrame(gait, phase, model = 'horse') {
       return m;
     };
     composite(frame, drawArm(HUMAN_ARM.shoulderFar, handF, false));
-    // pelvis sits on the withers-to-chest slope (its base stays on the trunk; only the waist leans),
-    // then the torso widens to the shoulders
-    fillPolyU(body, [X(S([0.12, 0.95])), X(S([0.46, 0.86])), T([0.41, 1.12]), T([0.17, 1.12])], SKIN);
-    fillPolyU(body, [[0.17, 1.12], [0.41, 1.12], [0.46, 1.33], [0.10, 1.33]].map(T), SKIN);
-    fillEllipseU(body, T([0.13, 1.31]), 0.05, 0.05, 0, SKIN);          // shoulder caps
-    fillEllipseU(body, T([0.43, 1.31]), 0.05, 0.05, 0, SKIN);
-    segU(body, T([0.29, 1.33]), T([0.29, 1.41]), wU(3), wU(3), SKIN, false);        // neck
+    // pelvis sunk into the withers and chest, fixed to the trunk; torso above it leans
+    fillPolyU(body, [[-0.14, -0.06], [0.12, -0.14], [0.10, 0.12], [-0.09, 0.12]].map(Bfix), SKIN);
+    fillPolyU(body, [...crSample(HUMAN_FRONT, 3), ...crSample(HUMAN_BACK, 3)].map(T), SKIN);
+    fillEllipseU(body, T([0.00, 0.40]), 0.055, 0.055, 0, SKIN);         // deltoid
+    fillPolyU(body, [[-0.03, 0.40], [0.05, 0.40], [0.07, 0.50], [0.00, 0.50]].map(T), SKIN);   // neck, slanting forward
+    fillEllipseU(body, T([0.02, 0.585]), 0.075, 0.08, pitch - lean, SKIN);          // skull
+    fillPolyU(body, HUMAN_FACE.map(T), SKIN);                            // brow, nose, chin
     shade(body);
-    fillEllipseU(body, T([0.28, 1.50]), 0.08, 0.07, 0, MANE);           // hair
-    fillEllipseU(body, T([0.30, 1.47]), 0.065, 0.075, 0, SKIN);         // face
-    eye = T([0.34, 1.48]);
+    fillEllipseU(body, T([-0.01, 0.62]), 0.08, 0.06, pitch - lean, MANE);           // hair, top and back of the skull
+    eye = T([0.085, 0.59]);
     nearArm = drawArm(HUMAN_ARM.shoulderNear, handN, true);
   } else {
     const a = gait.neck(phase), b = gait.head(phase);

@@ -42,9 +42,13 @@ nearest-neighbour previews (`out/preview-*.png`) for eyeballing.
 Same rig from the withers back — trunk, spine, legs, tail and every gait table
 are shared byte-for-byte, so a centaur and a horse in the same scene keep step.
 The horse neck and head are replaced by a human half whose hip joint sits on
-the withers: pelvis on the withers-to-chest slope, torso widening to the
-shoulders, neck, head with a cap of hair, and two IK arms (elbow behind the
-shoulder-hand line). Per gait the torso leans forward with speed (5° walk,
+the withers. The torso is drawn in profile the same way the horse trunk is,
+from front and back station lines through a Catmull-Rom curve: belly, navel
+in, chest out, collarbone, throat down the front; shoulders, blades out, small
+of the back in, buttock out down the back. A deltoid cap, a forward-slanting
+neck, a skull ellipse with a face polygon (brow, nose, lip, chin) and a cap of
+hair sit on top; the pelvis is sunk into the withers and chest and does not
+lean. Two IK arms hang from the deltoid (elbow behind the shoulder-hand line). Per gait the torso leans forward with speed (5° walk,
 10° trot, 18° canter, 26° gallop, minus a little when the back rounds) and the
 arms swing at the walk, pump at the trot, and are held forward and bent at the
 canter and gallop; idle is akimbo. Far arm is drawn behind the body group, near
